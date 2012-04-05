@@ -18,7 +18,8 @@ namespace HotTubMaster
         static PWM motorRight = new PWM((PWM.Pin)FEZ_Pin.PWM.Di9); // hooked up to a MOSFET
         static PWM tubLight = new PWM((PWM.Pin)FEZ_Pin.PWM.Di8);// hooked up to a transistor
         static AnalogIn distanceSensor = new AnalogIn((AnalogIn.Pin)FEZ_Pin.AnalogIn.An0); // MAX sensor 
-        
+        static AnalogIn batteryVoltage = new AnalogIn((AnalogIn.Pin)FEZ_Pin.AnalogIn.An1);
+
         static OutputPort pcbLed = new OutputPort((Cpu.Pin)FEZ_Pin.Digital.Di13, false); // LED on the Fez Panda
         
         static SerialPort radio = new SerialPort("COM1", 9600); // Xbee XSC radio 
@@ -35,6 +36,7 @@ namespace HotTubMaster
 
         public static void Main() 
         {
+            double batV = 0;
             RealTimeClock.SetTime(new DateTime(2010, 1, 1, 1, 1, 1));
            
 
@@ -50,12 +52,32 @@ namespace HotTubMaster
             
             while (true)
             {
+                // make sure the battery voltage is high enough so we don't destroy the battery! 
+                batV = batteryVoltage.Read() * (3.3 / 1024) / .25;
+                Debug.Print(batV.ToString());
+                if (batV < 11.8)
+                {
+                    radioPower.Write(true);
+                    
+                    tubLight.Set(false);
+                    Thread.Sleep(100);
+                    tubLight.Set(true);
+                    Thread.Sleep(100);
+                    tubLight.Set(false);
+                    Thread.Sleep(100);
+                    tubLight.Set(true);
+
+                    RealTimeClock.SetAlarm(RealTimeClock.GetTime().AddSeconds(10));
+                    Power.Hibernate(Power.WakeUpInterrupt.RTCAlarm);
+
+                }
+
                 switch (currentState)
                 {
                     case ProgramStates.idle:
                         radioPower.Write(false);
                         double dist = getDistance(distanceSensor);
-                        if ((dist < 1) && (currentState == ProgramStates.idle))
+                        if ((dist < 3) && (currentState == ProgramStates.idle))
                         {
                             lastComms = RealTimeClock.GetTime();
                             // send out a wakeup call for around 11 seconds to get the neighbors out of sleep mode and ready to sync up
@@ -172,7 +194,7 @@ namespace HotTubMaster
             double multiplier = 0;
             tubLight.Set(false);
             Thread.Sleep(10000);
-            for (int i = 20; i < 45; i++)
+            for (int i = 20; i < 30; i++)
             {
                multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
                 motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
@@ -182,7 +204,7 @@ namespace HotTubMaster
              }
                 
                 Thread.Sleep(10000);
-                for (int i = 45; i > 20; i--)
+                for (int i = 30; i > 20; i--)
                 {
                     multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
                     motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
