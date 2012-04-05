@@ -8,18 +8,23 @@ using Microsoft.SPOT.Hardware;
 
 using GHIElectronics.NETMF.Hardware;
 using GHIElectronics.NETMF.FEZ;
+using GHIElectronics.NETMF.Hardware.LowLevel;
 
 namespace HotTubMaster
 {
     public class Program
     {
-        static PWM MotorLeft = new PWM((PWM.Pin)FEZ_Pin.PWM.Di10); // hooked up to a MOSFET
-        static PWM MotorRight = new PWM((PWM.Pin)FEZ_Pin.PWM.Di9); // hooked up to a MOSFET
-        static PWM TubLight = new PWM((PWM.Pin)FEZ_Pin.PWM.Di8);// hooked up to a transistor
+        static PWM motorLeft = new PWM((PWM.Pin)FEZ_Pin.PWM.Di10); // hooked up to a MOSFET
+        static PWM motorRight = new PWM((PWM.Pin)FEZ_Pin.PWM.Di9); // hooked up to a MOSFET
+        static PWM tubLight = new PWM((PWM.Pin)FEZ_Pin.PWM.Di8);// hooked up to a transistor
         static AnalogIn distanceSensor = new AnalogIn((AnalogIn.Pin)FEZ_Pin.AnalogIn.An0); // MAX sensor 
-        static OutputPort LED = new OutputPort((Cpu.Pin)FEZ_Pin.Digital.Di13, false); // LED on the Fez Panda
+        
+        static OutputPort pcbLed = new OutputPort((Cpu.Pin)FEZ_Pin.Digital.Di13, false); // LED on the Fez Panda
+        
         static SerialPort radio = new SerialPort("COM1", 9600); // Xbee XSC radio 
+        static OutputPort radioPower;
         static string radioBuffer = ""; // incoming buffer
+        static DateTime lastComms = new DateTime(2010, 1, 1, 1, 1, 1);
 
         // idle = sitting around waiting for someone to walk past the sculpture
         // live = sculpture just got triggered
@@ -30,6 +35,10 @@ namespace HotTubMaster
 
         public static void Main() 
         {
+            RealTimeClock.SetTime(new DateTime(2010, 1, 1, 1, 1, 1));
+           
+
+            radioPower = new OutputPort((Cpu.Pin)FEZ_Pin.Digital.Di5, true); // /Sleep pin on xbee
             radio.DataReceived += new SerialDataReceivedEventHandler(radio_DataReceived);
             radio.Open();
            
@@ -37,19 +46,53 @@ namespace HotTubMaster
             bool ledState = false;
             
             OutputPort led = new OutputPort((Cpu.Pin)FEZ_Pin.Digital.LED, ledState);
-            TubLight.Set(true); // turn it off
+            tubLight.Set(true); // turn it off
             
             while (true)
             {
                 switch (currentState)
                 {
                     case ProgramStates.idle:
+                        radioPower.Write(false);
                         double dist = getDistance(distanceSensor);
                         if ((dist < 1) && (currentState == ProgramStates.idle))
                         {
+                            lastComms = RealTimeClock.GetTime();
+                            // send out a wakeup call for around 11 seconds to get the neighbors out of sleep mode and ready to sync up
+                            for (int i = 0; i < 1100; i++)
+                            {
+                                radio.Write(new byte[] { (byte)'$', (byte)'w', (byte)'a', (byte)'k', (byte)'e', (byte)'u', (byte)'p' }, 0, 7);
+                                Thread.Sleep(10);
+                            }
                             radio.Write(new byte[] { (byte)'$', (byte)'a', (byte)'c', (byte)'t', (byte)'i', (byte)'o', (byte)'n', (byte)'\r' }, 0, 8);
-                            Thread.Sleep(20);
+                            Thread.Sleep(400);
                             currentState = ProgramStates.live;
+                            radioPower.Write(true);
+                        }
+                        
+                        else
+                        {
+                            Thread.Sleep(100); // give it a moment to listen for comms.
+                            
+                            led.Write(true);
+                            pcbLed.Write(true);
+                            Thread.Sleep(100);
+                            pcbLed.Write(false);
+                            led.Write(false);
+                            Thread.Sleep(50);
+                            TimeSpan timeDif = RealTimeClock.GetTime() - lastComms;
+                            
+                            int mins = (timeDif.Days * 1440) + (timeDif.Hours * 60) + timeDif.Minutes;
+                            if ((currentState == ProgramStates.idle) && mins > 1)
+                            {
+                                radioPower.Write(true);
+                                RealTimeClock.SetAlarm(RealTimeClock.GetTime().AddSeconds(10));
+                                Power.Hibernate(Power.WakeUpInterrupt.RTCAlarm);
+                            }
+                            else
+                            {
+                                Thread.Sleep(500);
+                            }
                         }
                         break;
                     case ProgramStates.live:
@@ -74,10 +117,12 @@ namespace HotTubMaster
 
         static void radio_DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
+
             SerialPort radio = sender as SerialPort;
             int cnt = radio.BytesToRead;
             byte[] rx = new byte[cnt];
-
+            lastComms = RealTimeClock.GetTime();
+            
             radio.Read(rx, 0, cnt);
             for (int i = 0; i < cnt; i++)
             {
@@ -124,17 +169,31 @@ namespace HotTubMaster
 
         public static void playShow()
         {
-            TubLight.Set(false);
-            for (int i = 0; i < 1; i++)
+            double multiplier = 0;
+            tubLight.Set(false);
+            Thread.Sleep(10000);
+            for (int i = 20; i < 45; i++)
             {
-                MotorLeft.SetPulse(1000000, 300000);
-                MotorRight.SetPulse(1000000, 300000);
-                Thread.Sleep(5000);
-                MotorLeft.Set(false);
-                MotorRight.Set(false);
-                Thread.Sleep(1000);
-            }
-            TubLight.Set(true);
+               multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
+                motorRight.SetPulse(1000000, (uint)(700000 * multiplier));
+                multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                Thread.Sleep((int)(300 / multiplier));
+             }
+                
+                Thread.Sleep(10000);
+                for (int i = 45; i > 20; i--)
+                {
+                    multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                    motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
+                    motorRight.SetPulse(1000000, (uint)(700000 * multiplier));
+                    multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                    Thread.Sleep((int)(300 * multiplier));
+                }
+                motorLeft.Set(false);
+                motorRight.Set(false);
+                Thread.Sleep(10000);
+                tubLight.Set(true);
         }
 
         public static void doTest()
@@ -143,28 +202,28 @@ namespace HotTubMaster
 
             for (i = 0; i < 10; i++)
             {
-                MotorLeft.SetPulse(1000000, 200000);
+                motorLeft.SetPulse(1000000, 200000);
                 Thread.Sleep(100);
-                MotorLeft.Set(false);
+                motorLeft.Set(false);
                 Thread.Sleep(100);
-                MotorRight.SetPulse(1000000, 200000);
+                motorRight.SetPulse(1000000, 200000);
                 Thread.Sleep(100);
-                MotorRight.Set(false);
+                motorRight.Set(false);
                 Thread.Sleep(250);
             }
 
-            MotorLeft.Set(false);
-            MotorRight.Set(false);
+            motorLeft.Set(false);
+            motorRight.Set(false);
 
             for (i = 0; i < 5; i++)
             {
-                TubLight.Set(true);
+                tubLight.Set(true);
                 Thread.Sleep(100);
-                TubLight.Set(false);
+                tubLight.Set(false);
                 Thread.Sleep(250);
             }
 
-            TubLight.Set(true);
+            tubLight.Set(true);
         }
     }
 }
