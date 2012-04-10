@@ -37,6 +37,8 @@ namespace HotTubMaster
         public static void Main() 
         {
             double batV = 0;
+            double dist = 1000;
+            string debugMsg = "";
             RealTimeClock.SetTime(new DateTime(2010, 1, 1, 1, 1, 1));
            
 
@@ -49,16 +51,16 @@ namespace HotTubMaster
             
             OutputPort led = new OutputPort((Cpu.Pin)FEZ_Pin.Digital.LED, ledState);
             tubLight.Set(true); // turn it off
-            
+            Thread.Sleep(10000);// wait for programming just incase
             while (true)
             {
                 // make sure the battery voltage is high enough so we don't destroy the battery! 
                 batV = batteryVoltage.Read() * (3.3 / 1024) / .25;
                 Debug.Print(batV.ToString());
-                if (batV < 11.8)
+                if (batV < 12)
                 {
                     radioPower.Write(true);
-                    
+
                     tubLight.Set(false);
                     Thread.Sleep(100);
                     tubLight.Set(true);
@@ -72,67 +74,74 @@ namespace HotTubMaster
 
                 }
 
-                switch (currentState)
+                else
                 {
-                    case ProgramStates.idle:
-                        radioPower.Write(false);
-                        double dist = getDistance(distanceSensor);
-                        if ((dist < 3) && (currentState == ProgramStates.idle))
-                        {
-                            lastComms = RealTimeClock.GetTime();
-                            // send out a wakeup call for around 11 seconds to get the neighbors out of sleep mode and ready to sync up
-                            for (int i = 0; i < 1100; i++)
+                    switch (currentState)
+                    {
+                        case ProgramStates.idle:
+                            radioPower.Write(false);
+                            dist = getDistance(distanceSensor);
+                            if ((dist < 3) && (currentState == ProgramStates.idle))
                             {
-                                radio.Write(new byte[] { (byte)'$', (byte)'w', (byte)'a', (byte)'k', (byte)'e', (byte)'u', (byte)'p' }, 0, 7);
-                                Thread.Sleep(10);
-                            }
-                            radio.Write(new byte[] { (byte)'$', (byte)'a', (byte)'c', (byte)'t', (byte)'i', (byte)'o', (byte)'n', (byte)'\r' }, 0, 8);
-                            Thread.Sleep(400);
-                            currentState = ProgramStates.live;
-                            radioPower.Write(true);
-                        }
-                        
-                        else
-                        {
-                            Thread.Sleep(100); // give it a moment to listen for comms.
-                            
-                            led.Write(true);
-                            pcbLed.Write(true);
-                            Thread.Sleep(100);
-                            pcbLed.Write(false);
-                            led.Write(false);
-                            Thread.Sleep(50);
-                            TimeSpan timeDif = RealTimeClock.GetTime() - lastComms;
-                            
-                            int mins = (timeDif.Days * 1440) + (timeDif.Hours * 60) + timeDif.Minutes;
-                            if ((currentState == ProgramStates.idle) && mins > 1)
-                            {
+                                lastComms = RealTimeClock.GetTime();
+                                // send out a wakeup call for around 11 seconds to get the neighbors out of sleep mode and ready to sync up
+                                for (int i = 0; i < 250; i++)
+                                {
+                                    radio.Write(new byte[] { (byte)'$'}, 0, 1);
+                                    Thread.Sleep(10);
+                                }
+                                debugMsg = "dist: " + dist.ToString("F2") + ", bat: " + batV.ToString("F2") + "\r";
+                                radio.Write(UTF8Encoding.UTF8.GetBytes(debugMsg), 0, debugMsg.Length);
+                                radio.Write(new byte[] { (byte)'$', (byte)'a', (byte)'c', (byte)'t', (byte)'i', (byte)'o', (byte)'n', (byte)'\r' }, 0, 8);
+                                Thread.Sleep(400);
+                                currentState = ProgramStates.live;
                                 radioPower.Write(true);
-                                RealTimeClock.SetAlarm(RealTimeClock.GetTime().AddSeconds(10));
-                                Power.Hibernate(Power.WakeUpInterrupt.RTCAlarm);
                             }
+
                             else
                             {
-                                Thread.Sleep(500);
+                                Thread.Sleep(100); // give it a moment to listen for comms.
+
+                                led.Write(true);
+                                pcbLed.Write(true);
+                                Thread.Sleep(100);
+                                pcbLed.Write(false);
+                                led.Write(false);
+                                Thread.Sleep(50);
+                                TimeSpan timeDif = RealTimeClock.GetTime() - lastComms;
+
+                                int mins = (timeDif.Days * 1440) + (timeDif.Hours * 60) + timeDif.Minutes;
+                                if ((currentState == ProgramStates.idle) && mins > 1)
+                                {
+                                    radioPower.Write(true);
+                                    RealTimeClock.SetAlarm(RealTimeClock.GetTime().AddSeconds(2));
+                                    Power.Hibernate(Power.WakeUpInterrupt.RTCAlarm);
+                                }
+                                else
+                                {
+                                    Thread.Sleep(500);
+                                }
                             }
-                        }
-                        break;
-                    case ProgramStates.live:
-                        playShow();
-                        if(currentState == ProgramStates.live) // make sure the state didn't change during the show
+                            break;
+                        case ProgramStates.live:
+                            playShow();
+                            debugMsg = "dist: " + dist.ToString("F2") + ", bat: " + batV.ToString("F2") + "\r";
+                            radio.Write(UTF8Encoding.UTF8.GetBytes(debugMsg), 0, debugMsg.Length);
+                            RealTimeClock.SetAlarm(RealTimeClock.GetTime().AddSeconds(30));
+                            Power.Hibernate(Power.WakeUpInterrupt.RTCAlarm);
                             currentState = ProgramStates.idle;
-                        break;
-                    case ProgramStates.config:
-                        if (currentState == ProgramStates.config)
-                            currentState = ProgramStates.idle;
-                        break;
-                    case ProgramStates.test:
-                        doTest();
-                        if (currentState == ProgramStates.test)
-                            currentState = ProgramStates.idle;
-                        break;
+                            break;
+                        case ProgramStates.config:
+                            if (currentState == ProgramStates.config)
+                                currentState = ProgramStates.idle;
+                            break;
+                        case ProgramStates.test:
+                            doTest();
+                            if (currentState == ProgramStates.test)
+                                currentState = ProgramStates.idle;
+                            break;
+                    }
                 }
-                
 
             }
         }
@@ -169,7 +178,9 @@ namespace HotTubMaster
             else if (buffer.IndexOf("test", 0) > 0)
                 currentState = ProgramStates.test;
             if (buffer.IndexOf("ACTION", 0) > 0)
+            {
                 currentState = ProgramStates.live;
+            }
             else if (buffer.IndexOf("action", 0) > 0)
                 currentState = ProgramStates.live;
         }
@@ -193,25 +204,46 @@ namespace HotTubMaster
         {
             double multiplier = 0;
             tubLight.Set(false);
-            Thread.Sleep(10000);
-            for (int i = 20; i < 30; i++)
+            Thread.Sleep(3000);
+            
+            // 30-40 for left, 40-50 for right
+            for (int i = 40; i < 50; i++)
             {
                multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
                 motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
                 motorRight.SetPulse(1000000, (uint)(700000 * multiplier));
-                multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
-                Thread.Sleep((int)(300 / multiplier));
+                //multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                Thread.Sleep(2000);
              }
-                
-                Thread.Sleep(10000);
-                for (int i = 30; i > 20; i--)
+              
+
+            /*
+            for (int i = 200000; i < 700000; i += 100)
+            {
+                motorLeft.SetPulse(1000000, (uint)i);
+                motorRight.SetPulse(1000000, (uint)i);
+                Thread.Sleep(5);
+            }
+             */
+               Thread.Sleep(5000);
+            
+            
+               for (int i = 50; i > 40; i--)
                 {
                     multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
                     motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
                     motorRight.SetPulse(1000000, (uint)(700000 * multiplier));
-                    multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
-                    Thread.Sleep((int)(300 * multiplier));
+                    //multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                    Thread.Sleep(2000);
                 }
+            /*
+                for (int i = 700000; i > 200000; i -= 100)
+                {
+                    motorLeft.SetPulse(1000000, (uint)i);
+                    motorRight.SetPulse(1000000, (uint)i);
+                    Thread.Sleep(5);
+                }
+             */
                 motorLeft.Set(false);
                 motorRight.Set(false);
                 Thread.Sleep(10000);
