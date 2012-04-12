@@ -33,6 +33,7 @@ namespace HotTubMaster
         // test = full system test, operate each component in sequence 
         enum ProgramStates {idle = 0, live = 1 , config = 2, test = 3};
         static ProgramStates currentState = ProgramStates.test;  // always run the test first when the sculpture turns on so we know it's OK! 
+        //static ProgramStates currentState = ProgramStates.live;  // debug mode, start show first
 
         public static void Main() 
         {
@@ -41,7 +42,6 @@ namespace HotTubMaster
             string debugMsg = "";
             RealTimeClock.SetTime(new DateTime(2010, 1, 1, 1, 1, 1));
            
-
             radioPower = new OutputPort((Cpu.Pin)FEZ_Pin.Digital.Di5, true); // /Sleep pin on xbee
             radio.DataReceived += new SerialDataReceivedEventHandler(radio_DataReceived);
             radio.Open();
@@ -50,8 +50,36 @@ namespace HotTubMaster
             bool ledState = false;
             
             OutputPort led = new OutputPort((Cpu.Pin)FEZ_Pin.Digital.LED, ledState);
-            tubLight.Set(true); // turn it off
+            tubLight.Set(false); // turn it off
             Thread.Sleep(10000);// wait for programming just incase
+            /*
+            while (true)
+            {
+                double multiplier = 0;
+                tubLight.SetPulse(1000000, 100000);
+                Thread.Sleep(500);
+                // 30-40 for left, 40-50 for right
+                for (int i = 40; i < 50; i++)
+                {
+                    multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                    motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
+                    motorRight.SetPulse(1000000, (uint)(700000 * multiplier));
+                    //multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                    Thread.Sleep(500);
+                }
+                tubLight.Set(true);
+                Thread.Sleep(500);
+                // 30-40 for left, 40-50 for right
+                for (int i = 40; i < 50; i++)
+                {
+                    multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                    motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
+                    motorRight.SetPulse(1000000, (uint)(700000 * multiplier));
+                    //multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
+                    Thread.Sleep(500);
+                }
+            }*/
+
             while (true)
             {
                 // make sure the battery voltage is high enough so we don't destroy the battery! 
@@ -61,13 +89,13 @@ namespace HotTubMaster
                 {
                     radioPower.Write(true);
 
-                    tubLight.Set(false);
-                    Thread.Sleep(100);
                     tubLight.Set(true);
                     Thread.Sleep(100);
                     tubLight.Set(false);
                     Thread.Sleep(100);
                     tubLight.Set(true);
+                    Thread.Sleep(100);
+                    tubLight.Set(false);
 
                     RealTimeClock.SetAlarm(RealTimeClock.GetTime().AddSeconds(10));
                     Power.Hibernate(Power.WakeUpInterrupt.RTCAlarm);
@@ -202,12 +230,13 @@ namespace HotTubMaster
 
         public static void playShow()
         {
+            int i = 0;
             double multiplier = 0;
-            tubLight.Set(false);
+            tubLight.Set(true);
             Thread.Sleep(3000);
             
             // 30-40 for left, 40-50 for right
-            for (int i = 40; i < 50; i++)
+            for (i = 45; i < 55; i++)
             {
                multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
                 motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
@@ -225,10 +254,10 @@ namespace HotTubMaster
                 Thread.Sleep(5);
             }
              */
-               Thread.Sleep(5000);
+        
+            Thread.Sleep(5000);
             
-            
-               for (int i = 50; i > 40; i--)
+               for (i = 55; i > 45; i--)
                 {
                     multiplier = Microsoft.SPOT.Math.Sin(i) / 1000.0;
                     motorLeft.SetPulse(1000000, (uint)(700000 * multiplier));
@@ -247,7 +276,7 @@ namespace HotTubMaster
                 motorLeft.Set(false);
                 motorRight.Set(false);
                 Thread.Sleep(10000);
-                tubLight.Set(true);
+                tubLight.Set(false);
         }
 
         public static void doTest()
@@ -271,13 +300,13 @@ namespace HotTubMaster
 
             for (i = 0; i < 5; i++)
             {
-                tubLight.Set(true);
-                Thread.Sleep(100);
                 tubLight.Set(false);
+                Thread.Sleep(100);
+                tubLight.Set(true);
                 Thread.Sleep(250);
             }
 
-            tubLight.Set(true);
+            tubLight.Set(false);
         }
     }
 }
